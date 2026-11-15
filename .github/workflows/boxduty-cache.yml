@@ -1,0 +1,48 @@
+name: RunsOn cache benchmark
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  cache:
+    name: ${{ matrix.provider }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: Boxduty
+            runner: boxduty-cache-benchmark
+          - provider: GitHub hosted
+            runner: ubuntu-latest
+    steps:
+      - name: Record runner and workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -sm
+          printf 'Workspace filesystem: '
+          stat -f -c %T "$GITHUB_WORKSPACE"
+          df -h "$GITHUB_WORKSPACE"
+          if [[ -r /sys/fs/cgroup/cpu.max ]]; then cat /sys/fs/cgroup/cpu.max; fi
+          if [[ -r /sys/fs/cgroup/memory.max ]]; then cat /sys/fs/cgroup/memory.max; fi
+          command -v tar
+          if command -v zstd >/dev/null; then zstd --version; fi
+      - name: Generate 4 GiB file
+        run: head -c 4G /dev/urandom > cache-file
+      - name: "phase: cache save"
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: cache-file
+          key: bench-${{ matrix.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Remove file
+        run: unlink cache-file
+      - name: "phase: cache restore"
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: cache-file
+          key: bench-${{ matrix.runner }}-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: "phase: verify"
+        run: test -f cache-file && test "$(stat -c %s cache-file)" -eq 4294967296
